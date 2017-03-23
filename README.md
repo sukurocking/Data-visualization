@@ -5,6 +5,6 @@ The packages used are:
 (ii) Ggplot2
 (iii)Plotly
 
-Open the html files to view the visualizations directly or knit the rmd (Rmarkdown) files in RStudio to generate new html. The second way may be more cumbersome, it generate the visualiztions properly.
+Open the html files to view the visualizations directly or knit the rmd (Rmarkdown) files in RStudio to generate new html. The second way may be more cumbersome, but it will generate the visualiztions properly.
 
 ## Enjoy

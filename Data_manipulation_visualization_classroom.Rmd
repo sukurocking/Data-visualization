@@ -1,0 +1,69 @@
+---
+title: "Data_manipulation_visualization_classroom"
+author: "Sukumar"
+date: "March 7, 2017"
+output: html_document
+---
+
+For our next experiment, we use directmarketing file, where we will practise data manipulation and data visualization
+
+```{r Reading data and library, include=FALSE}
+library(tidyverse)
+dm <- read_csv("E:/tutorials/Jigsaw/R/Data visualization/Data Visualiazaion in R - Pre class Videos/DirectMarketing.csv")
+```
+
+```{r}
+head(dm)
+dim(dm)
+```
+
+# Lets say, we want to find out the top 2 salaries of males and females
+
+We will use pipe ( %>% ) operator for this:
+Pipe operation works in the same way as we think
+Lets break the operation into small manageable parts
+* Select the columns gender and salary
+* Group the data according to gender
+* Get the ranks of the salaries (in descending order preferably)
+* Filter it to the top 2 ranks only of each group
+
+So, now lets try it in our piped code:
+```{r}
+dm %>% select(Gender, Salary) %>% group_by(Gender) %>% filter(min_rank(desc(Salary))<=2) %>% arrange(desc(Salary)) 
+```
+
+#Time to introduce window family of functions
+
+These are the cumulative mathematical functions in R
+* `cumsum` - cumulative sum 
+* `cummax` - cumulative max
+* `cummin` - cumulative min
+* `cumany` - checks if ANY of the elements of the logical vector is cumulatively true
+* `cumall` - checks if ALL of the elements of the logical vector are cumulatively true
+* `cume_dist` - calculates the cumulative percent distributions of the data
+```{r}
+x <- sample(1:20, 7)
+cumsum(x)
+cummin(x)
+cumall(x <= 5)
+cume_dist(x)
+cumprod(x) #Calculate cumulative product
+cumany(x <= 5)
+cummax(x)
+```
+
+#Finding the top 2% of both groups
+```{r}
+dm %>% select(Gender, Salary) %>% group_by(Gender) %>% filter(cume_dist(desc(Salary)) <= 0.02) %>% arrange(desc(Salary))
+```
+
+#Dividing numeric vector into bins and dividing the corresponding data frame into different parts
+
+```{r}
+dm %>% select(Gender, Salary) %>% mutate(Group = ntile(desc(Salary), 10)) %>% group_by(Group) %>% summarise(
+  maximum = max(Salary),
+  minimum = min(Salary),
+  count = n()
+  )
+```
+Along with dividing the `dm` into 10 groups in descending order of salary, the above code gives the count of each group as well as the maximum and minimum of each group

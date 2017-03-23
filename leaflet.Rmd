@@ -1,0 +1,259 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+This is a data visualization markdown document.
+Here we will be analyzing spacial data analysis using leaflet package
+
+```{r library packages, include=FALSE}
+library(leaflet)
+library(rgdal)
+library(sp)
+library(dplyr)
+library(maptools)
+library(spatstat)
+```
+
+Reading the dataset starbucks.csv
+```{r}
+starbucks <- read.csv("starbucks.csv")
+head(starbucks)
+star_city <- data.frame(table(starbucks$City))
+```
+
+Now we will limit ourselves to the city Vancouver
+```{r}
+filter(star_city,Var1=="Vancouver")
+v <- filter(starbucks,City=="Vancouver")
+dim(v)
+```
+
+Now we will plot the v data.frame on a map using `leaflet`. Leaflet package by itself doesn't have enough substance to create a plot. It needs functions like `addTiles()`,`addCircles()`,`addMarkers()`,`addPolygons()` to put things together for a plot to be created
+```{r}
+leaflet(v)%>%addProviderTiles('Stamen.Watercolor')%>%addMarkers()
+#This simply adds markers without any popups
+```
+The below code will create circle markings around the stores:
+```{r}
+leaflet(v)%>%addProviderTiles('Stamen.Toner')%>%addCircles(radius = 400, color = 'orange')
+```
+
+Now, we want the some names to come up in our popups
+Lets rename one of our columns:
+```{r}
+colnames(v)
+names(v)[6] <- "Products"
+```
+
+```{r}
+leaflet(v)%>%addProviderTiles('Stamen.Watercolor')%>%addMarkers(popup = v$Products)  #Getting product names in popups
+leaflet(v)%>%addTiles()%>%addMarkers(lng = v$Longitude,
+                                     lat = v$Latitude,
+                                     popup = paste("Name:",v$Name,"Products:",v$Products) ) #Getting name of store and product name in popups
+```
+
+Now for the rest of the document, we have the following targets:
+* Create 2km buffers around each store and plot that area on a map
+* create polygons around each store and plot them on a map
+
+Our roadmap for the above targets:
+* We will understand the different datums and coordinate reference systems
+* We will understand about EPSG codes 
+* We will convert the dataframe v into a spatialpointsdataframe
+* We will convert the latitude and longitude info to northings and easting coordinate system
+* create 2km buffers around the stores using `gbuffer()` from `rgeos` package
+
+B4 we move on to these targets, we need to understand the two types of **coordinate systems**:
+## Geographic coordinate system
+
+  * Geographic coordinate system is based on a sphere or a spheroid that imitates the earth and the points on the surface are referenced using latitude and longitude.
+  * Latitude and longitude are the angles formed by the center of the sphere      with the point on the surface
+  * Follows a 3-D model
+  
+## Projected coordinate system
+  
+  * This makes reference to the geographic coordinate system, which inturn        refers to a sphere or spheroid.
+  * Follows a 2D model
+  * It has 2 references: height of an point from the mid latitude line and        distance of the point from the mid longitude line
+  
+# Datum 
+
+  Datum is a sphere or a spheroid taken as a reference as a coordinate system   instead of earth
+  3 important datums in North America:
+  * WGS 1984
+  * NAD 1983
+  * NAD 1927
+  
+*3 parts of a coordinate reference system (**CRS**)  
+  ** Datum
+  ** Projection
+  ** Ellipsoid
+
+A particular CRS is referenced by its EPSG code  
+  
+# EPSG
+  It is a dictionary of coordinate reference systems. All the epsg codes and their reference datums can be accessed using `make_epsg()`
+  Most popular EPSG codes:
+  * longlat (Longitude and latitude coordinate system)
+    *4326(according to WGS84 datum)-
+    *4269(NAD83 datum)
+    *4267(NAD27 datum)
+  * Northing and Easting 
+    *26910(UTM, zone 10N, NAD83)
+    *32610 (UTM, zone 10, WGS84)
+  * Mercator (EPSG 3857) ##Tiles from Google maps,stamen maps, open street       maps  
+  
+```{r}
+library(rgdal)
+epsg <- make_EPSG()
+head(epsg)
+CRS("+init=epsg:3857")
+```
+
+* EPSG has 3 columns:
+  ** code
+  ** note - contains info about datum
+  ** prj4 - contains info about projection and ellipsoid
+  
+We can search for an expression within a column of the dataframe epsg using `grep()`. See below:
+```{r}
+epsg[grep(4326,epsg$code),] #search for and return info for code 4326 
+epsg[grep("CAN",epsg$note),]
+utm <- epsg[grep("UTM zone 10N",epsg$note),]
+tmp <- epsg[grep("longlat",epsg$prj4),]
+```
+The `tmp` stores all the EPSG codes and their datums, which deal with longlat info while the `utm` is the one with `UTM zone 10N` in the note column
+
+We can assign the EPSG code to any shapefile by mentioning the projection (the data in the `prj4` column)or by mentioning the code in the `code` column
+; projection(x) <- "+init=epsg:4326" or
+; projection(x) <- "+proj=longlat +datum=WGS84"
+
+We can know the details of a CRS by using CRS()
+```{r}
+CRS("+proj=longlat +datum=WGS84")
+##OR
+CRS("+init=epsg:4326")
+```
+
+
+#Back to the case study
+Lets work with the Vancouver dataset:
+Lets store the coordinates (latitude and longitude) values of different stores in a dataframe coords
+```{r}
+coords <- data.frame(v$Longitude,v$Latitude)
+```
+Now, we will convert the dataset `v` into a shape file:
+```{r}
+library(sp)
+v_sh <- SpatialPointsDataFrame(coords = coords,
+                               data = v,
+                               proj4string = CRS("+init=epsg:4326"))
+class(v_sh)
+v_sh@proj4string
+```
+As we can see, the proj4string gives all the info about the code, projection, datum, ellipsoid
+
+## Now it's time for transforming the spatialpointsdataframe to northing and easting format (which is the projected coordinate system)
+
+```{r}
+v_sh_ne <- spTransform(x = v_sh, CRSobj = CRS("+init=epsg:26914"))
+class(v_sh_ne)
+head(v_sh_ne@coords)
+v_sh_ne@bbox
+v_sh_ne@proj4string
+```
+As you can see, the previously formed latitude and longitude data is transformed into northing and easting data
+
+##Next step: Creating 2km buffers around the stores
+
+```{r}
+library(rgeos)
+v_sh_buffer <- gBuffer(v_sh_ne,byid = TRUE,width = 2000)
+class(v_sh_buffer)
+head(v_sh_buffer@data)
+```
+
+After having created the buffer polygons around the starbucks stores in Vancouver, we now convert the northing and easting data back to longitude and latitude data:
+```{r}
+v_sh_longlat <- spTransform(v_sh_buffer,CRS("+proj=longlat +datum=WGS84"))
+v_sh_longlat@bbox
+v_sh_longlat@proj4string
+class(v_sh_longlat)
+```
+
+After having converted the data back in longitude and latitude format, we plot the `leaflet`
+```{r}
+leaflet()%>%addMarkers(data = v,
+                       lng = ~Longitude,
+                       lat = ~Latitude, 
+                       popup = v$Name)  %>% addPolygons(data = v_sh_longlat, fill = "brown", color = "brown")%>% addTiles()
+```
+In the above code, it is very important to add those `data=` parameters 
+
+#Calculating areas around stores
+Now, we will create a chart consisting of polygons indicating area around the starbucks stores.
+The following are our targets:
+  * Each polygon represents the area that is nearest to the point that it contains for a given study area
+  * Each polygon has a popup as well that shows its area in square kilometers
+  
+For calculating area, we will be working with projected coordinate system again
+
+First we will create a window using owin()
+```{r}
+v_x_range <- range(v_sh_ne@coords[,1])
+v_y_range <- range(v_sh_ne@coords[,2])
+v_coords <- v_sh_ne@coords #Storing the projected coordinates in a variable
+window <- owin(v_x_range,v_y_range) #This window will be used to create polygons later
+```
+
+Using the window we created earlier, we will create the polygons using `dirichlet()`. The only issue in using `dirichlet()` is that it takes input of class `ppp`
+
+Lets create those polygons:
+```{r}
+v_dirichlet <- dirichlet(as.ppp(v_coords,window))
+class(v_dirichlet)
+```
+
+Now, let's manipulate `v_dirichlet`. We will convert `v_dirichlet` to spatialpolygonsdataframe in the end
+```{r}
+sp <- as(v_dirichlet,"SpatialPolygons")
+```
+It is important to know that the above object `sp` is of `SpatialPolygons` class. It is not a dataframe yet. So it can't be visualized.
+Moreover, we cannot convert `v_dirichlet` directly to a `SpatialPointsDataFrame`. 
+```{r}
+sp_df <- SpatialPolygonsDataFrame(sp,data = data.frame(id=1:length(sp@polygons)))
+sp_df@data$id #This contains id for 27 Starbucks stores
+sp_df@proj4string 
+```
+There are no projected strings.. Lets add the northings and easting CRS to this `sp_df`..This is all for calculating the areas to the polygons
+```{r}
+proj4string(sp_df) <- CRS("+init=epsg:26914")
+sp_df@proj4string
+```
+
+Lets calculate the areas of the polygons
+```{r}
+library(rgeos)
+gArea(sp_df)
+gArea(sp_df,byid=TRUE) #This calculates the areas of the polygons nearest to the stores grouped id
+gArea(sp_df,byid=TRUE)/1000000 #In terms of square kilometers
+sp_df$area <- round(gArea(sp_df,byid = TRUE)/1000000,1) #Rounds to 1 decimal
+sp_df$area
+```
+
+Now that we have calculated the area, lets convert the `sp_df` spatialpolygonsdataframe into longlat coordinate format, i.e., geographic coordinate system
+```{r}
+sp_xy <- spTransform(sp_df,CRS("+init=epsg:4326"))
+sp_xy@bbox #Checking if the coordinates have been converted to longlat format
+```
+This `sp_xy` is the spatialpointsdataframe in longlat format with the areas data stored.
+
+Its time to plot our map using `leaflet`
+```{r}
+library(leaflet)
+leaflet()%>%addMarkers(data = v, lng = ~Longitude, lat = ~Latitude,popup = ~Name)%>%addPolygons(data = sp_xy,color = "red", fill = "red",popup = paste("Area:",as.numeric(sp_xy$area),"square km"))%>%addTiles()
+```
+As we can see, this is a beautiful map of Starbucks stores in Vancouver with popups showing the name of the stores and clicking the area inside those polygons will give the area of the polygons nearest to the stores.
+
+
